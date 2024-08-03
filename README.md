@@ -1,4 +1,4 @@
-# Legion is a GPU-initiated system with multi-GPU cache for large-scale GNN training.
+# Hyperion is a Cost-efficient Out-of-core GNN Training System Based on Legion
 ```
 $ git clone https://github.com/RC4ML/Legion.git
 ```
