@@ -52,7 +52,6 @@ $ bash build.sh
 
 ## 4. Run Hyperion
 There are two steps to train a GNN model in Hyperion. In these steps, you need to change to **root** user for GPU Direct SSD Access.
-```
 ### Step 1. Start Hyperion Server
 
 ```
