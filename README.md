@@ -51,21 +51,18 @@ $ bash build.sh
 ```
 
 ## 4. Run Hyperion
-There are three steps to train a GNN model in Hyperion. In these steps, you need to change to **root** user for GPU Direct SSD Access.
-### Step 1. Open msr by root for PCM
+There are two steps to train a GNN model in Hyperion. In these steps, you need to change to **root** user for GPU Direct SSD Access.
 ```
-$ modprobe msr
-```
-### Step 2. Start Hyperion Server
+### Step 1. Start Hyperion Server
 
 ```
-$ python Hyperion_server.py --dataset_path 'dataset' --dataset_name ukunion --train_batch_size 8000 --fanout [25,10] --gpu_number 2 --epoch 2 --cache_memory 38000000 
+$ python Hyperion_server.py --dataset_path 'dataset' --dataset_name ukunion --train_batch_size 8000 --fanout [25,10] --epoch 2 
 ```
 
-### Step 3. Run Hyperion Training
+### Step 2. Run Hyperion Training
 After Hyperion outputs "System is ready for serving", then start training by: 
 ```
-$ python training_backend/Hyperion_graphsage.py --class_num 2  --features_num 128 --hidden_dim 256 --hops_num 2 --gpu_number 2 --epoch 2
+$ python training_backend/Hyperion_graphsage.py --class_num 2  --features_num 128 --hidden_dim 256 --hops_num 2 --epoch 2
 ```
 
 
