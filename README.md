@@ -1,12 +1,12 @@
 # Hyperion is a Cost-efficient Out-of-core GNN Training System Based on Legion
 ```
 $ git clone https://github.com/RC4ML/Legion.git
-$ git checkout -b Hyperion
+$ git checkout Hyperion
 ```
 
 ## 1. Hardware 
 ### Hardware Recommended
-All platforms are bare-metal machines.
+Local bare-metal machine.
 Table 1
 | Platform | CPU-Info | #sockets | #NUMA nodes | CPU Memory | PCIe | GPUs | SSD |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -24,20 +24,15 @@ Hyperion's software is light-weighted and portable. Here we list some tested env
 
 4. OS: Ubuntu(other linux systems are ok)
 
-5. Intel PCM(according to OS version)
-```
-$ wget https://download.opensuse.org/repositories/home:/opcm/xUbuntu_18.04/amd64/pcm_0-0+651.1_amd64.deb
-```
-6. pytorch-cu117, torchmetrics
+5. pytorch-cu117, torchmetrics
 ```
 $ pip3 install torch-cu1xx
 ```
-7. dgl 1.1.0
+6. dgl 1.1.0
 ```
 $ pip3 install  dgl -f https://data.dgl.ai/wheels/cu1xx/repo.html
 ```
-8. MPI-3.1
-
+7. GPU Direct Storage
 
 ## 3. Prepare Datasets 
 Datasets are from OGB (https://ogb.stanford.edu/), Standford-snap (https://snap.stanford.edu/), and Webgraph (https://webgraph.di.unimi.it/).
