@@ -14,25 +14,59 @@ Table 1
 
 
 ## 2. Software 
-Hyperion's software is light-weighted and portable. Here we list some tested environment.
-
+We list our tested environment:
+### CUDA Toolkits and NVIDIA Driver
 1. Nvidia Driver Version: 515.43.04
-
-2. CUDA 11.7
-
+2. CUDA 11.7 - 12.4
 3. GCC/G++ 11.4.0
+### OS 
+4. OS: Ubuntu 22.04, Linux version 5.15.72 (customized)
 
-4. OS: Ubuntu(other linux systems are ok)
+5. pytorch-cu117 (to pytorch-cu124), torchmetrics
+```
+$ pip install torch-cuxxx
+```
+6. dgl 1.1.0 - 2.x
+```
+$ pip install dgl -f https://data.dgl.ai/wheels/cu1xx/repo.html
+```
+### GPU Direct Storage
+We reuse the BaM (https://github.com/ZaidQureshi/bam) Kernel Module to enable GPU Direct Storage Access.
+#### Disable IOMMU in Linux
+$ cat /proc/cmdline | grep iommu
+If either iommu=on or intel_iommu=on is found by grep, the IOMMU is enabled.
+Disable it by removing iommu=on and intel_iommu=on from the CMDLINE variable in /etc/default/grub and then reconfiguring GRUB. The next time you reboot, the IOMMU will be disabled.
 
-5. pytorch-cu117, torchmetrics
-```
-$ pip3 install torch-cu1xx
-```
-6. dgl 1.1.0
-```
-$ pip3 install  dgl -f https://data.dgl.ai/wheels/cu1xx/repo.html
-```
-7. GPU Direct Storage
+#### Compiling Nvidia Driver Kernel Symbols
+$ cd /usr/src/nvidia-515.43.04/
+$ sudo make
+
+#### Building BaM Project
+From the project root directory, do the following:
+
+$ git submodule update --init --recursive
+$ mkdir -p build; cd build
+$ cmake ..
+$ make libnvm                         # builds library
+$ make benchmarks                     # builds benchmark program
+$ cd build/module
+$ make
+#### Loading/Unloading the Kernel Module
+Unbind the NVMe drivers according to your needs:
+$ sudo python unload_ssd.py 
+$ cd /path/BaM/build/module
+$ sudo make load
+Check whether it's successful
+This should create a /dev/libnvm* device file for each controller that isn't bound to the NVMe driver.
+$ ls /dev/
+
+The module can be unloaded from the project root directory with the following:
+$ cd build/module
+$ sudo make unload
+The module can be reloaded (unloaded and then loaded) from the project root directory with the following:
+
+$ cd build/module
+$ sudo make reload
 
 ## 3. Prepare Datasets 
 Datasets are from OGB (https://ogb.stanford.edu/), Standford-snap (https://snap.stanford.edu/), and Webgraph (https://webgraph.di.unimi.it/).
