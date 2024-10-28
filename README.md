@@ -45,6 +45,8 @@ $ sudo make
 #### Building BaM Project
 From the project root directory, do the following:
 ```
+$ git clone https://github.com/ZaidQureshi/bam.git
+$ cd bam
 $ git submodule update --init --recursive
 $ mkdir -p build; cd build
 $ cmake ..
