@@ -56,9 +56,9 @@ $ cd build/module
 $ make
 ```
 #### Loading/Unloading the Kernel Module
-Unbind the NVMe drivers according to your needs:
+Unbind the NVMe drivers according to your needs (customize unload_ssd.py):
 ```
-$ sudo python unload_ssd.py 
+$ sudo python /path/Hyperion/unload_ssd.py 
 $ cd /path/BaM/build/module
 $ sudo make load
 ```
