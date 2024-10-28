@@ -10,7 +10,7 @@ Local bare-metal machine.
 Table 1
 | Platform | CPU-Info | #sockets | #NUMA nodes | CPU Memory | PCIe | GPUs | SSD |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| B | 104*Intel(R) Xeon(R) Gold 5320 CPU @2.2GHZ | 2 | 2 | 768GB | PCIe 4.0x16| 80GB-PCIe-A100 | Intel P5510, Sansumg 980 pro |
+| A | 104*Intel(R) Xeon(R) Gold 5320 CPU @2.2GHZ | 2 | 2 | 768GB | PCIe 4.0x16| 80GB-PCIe-A100 | Intel P5510, Sansumg 980 pro |
 
 
 ## 2. Software 
@@ -38,12 +38,13 @@ If either iommu=on or intel_iommu=on is found by grep, the IOMMU is enabled.
 Disable it by removing iommu=on and intel_iommu=on from the CMDLINE variable in /etc/default/grub and then reconfiguring GRUB. The next time you reboot, the IOMMU will be disabled.
 
 #### Compiling Nvidia Driver Kernel Symbols
+```
 $ cd /usr/src/nvidia-515.43.04/
 $ sudo make
-
+```
 #### Building BaM Project
 From the project root directory, do the following:
-
+```
 $ git submodule update --init --recursive
 $ mkdir -p build; cd build
 $ cmake ..
@@ -51,22 +52,24 @@ $ make libnvm                         # builds library
 $ make benchmarks                     # builds benchmark program
 $ cd build/module
 $ make
+```
 #### Loading/Unloading the Kernel Module
 Unbind the NVMe drivers according to your needs:
+```
 $ sudo python unload_ssd.py 
 $ cd /path/BaM/build/module
 $ sudo make load
+```
 Check whether it's successful
 This should create a /dev/libnvm* device file for each controller that isn't bound to the NVMe driver.
+```
 $ ls /dev/
-
+```
 The module can be unloaded from the project root directory with the following:
+```
 $ cd build/module
 $ sudo make unload
-The module can be reloaded (unloaded and then loaded) from the project root directory with the following:
-
-$ cd build/module
-$ sudo make reload
+```
 
 ## 3. Prepare Datasets 
 Datasets are from OGB (https://ogb.stanford.edu/), Standford-snap (https://snap.stanford.edu/), and Webgraph (https://webgraph.di.unimi.it/).
