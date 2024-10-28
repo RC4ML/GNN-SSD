@@ -1,4 +1,4 @@
-# Hyperion is a Cost-efficient Out-of-core GNN Training System Based on Legion
+# Hyperion is an Out-of-core GNN Training System with GPU-initiated Asynchronous Disk IO Stack
 ```
 $ git clone https://github.com/RC4ML/Legion.git
 $ git checkout Hyperion
