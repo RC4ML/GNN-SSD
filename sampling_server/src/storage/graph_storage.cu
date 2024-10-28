@@ -1,6 +1,7 @@
 #include "graph_storage.cuh"
 #include "graph_storage_impl.cuh"
 
+/*in this version, partition id = shard id = device id*/
 class CompleteGraphStorage : public GraphStorage {
 public:
     CompleteGraphStorage() {
@@ -16,6 +17,7 @@ public:
         edge_num_ = info->total_edge_num;
         cache_edge_num_ = info->cache_edge_num;
 
+        // shard count == partition count now
         csr_node_index_.resize(partition_count_);
         csr_dst_node_ids_.resize(partition_count_);
         partition_index_.resize(partition_count_);
@@ -63,10 +65,6 @@ public:
         cudaCheckError();
         // assign_memory<<<1,1>>>(csr_dst_node_ids_[0], d_csr_dst_node_ids, csr_node_index_[0], d_csr_node_index, partition_count);
         // cudaCheckError();
-        // for(int i = 0; i < partition_count; i++){
-        //     cudaMemcpy(csr_node_index_[i], csr_node_index_[0], (partition_count + 1) * sizeof(int64_t*), cudaMemcpyDeviceToDevice);
-        //     cudaMemcpy(csr_dst_node_ids_[i], csr_dst_node_ids_[0], (partition_count + 1) * sizeof(int32_t*), cudaMemcpyDeviceToDevice);
-        // }
         csr_node_index_cpu_ = pin_csr_node_index;
         csr_dst_node_ids_cpu_ = pin_csr_dst_node_ids;
         
@@ -123,11 +121,11 @@ public:
     int32_t GetPartitionCount() const override {
         return partition_count_;
     }
-	int64_t** GetCSRNodeIndex(int32_t part_id) const override {
-		return csr_node_index_[part_id];
+	int64_t** GetCSRNodeIndex(int32_t dev_id) const override {
+		return csr_node_index_[dev_id];
 	}
-	int32_t** GetCSRNodeMatrix(int32_t part_id) const override {
-        return csr_dst_node_ids_[part_id];
+	int32_t** GetCSRNodeMatrix(int32_t dev_id) const override {
+        return csr_dst_node_ids_[dev_id];
     }
     
     int64_t* GetCSRNodeIndexCPU() const override {
@@ -144,11 +142,11 @@ public:
     int64_t Dst_Size(int32_t part_id) const override {
         return dst_size_[part_id];
     }
-    char* PartitionIndex(int32_t part_id) const override {
-        return partition_index_[part_id];
+    char* PartitionIndex(int32_t dev_id) const override {
+        return partition_index_[dev_id];
     }
-    int32_t* PartitionOffset(int32_t part_id) const override {
-        return partition_offset_[part_id];
+    int32_t* PartitionOffset(int32_t dev_id) const override {
+        return partition_offset_[dev_id];
     }
 
 private:

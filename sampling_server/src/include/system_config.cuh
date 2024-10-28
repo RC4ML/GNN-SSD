@@ -18,7 +18,7 @@
 #define DEVICE_PGSZ 0x10000
 #define CID_MASK 0xffff           // mask: command id
 #define SC_MASK 0xff              // mask: status code
-#define BROADCAST_NSID 0xffffffff // broadcast namespace id
+#define BROADCAST_NSID 0 // broadcast namespace id
 #define OPCODE_SET_FEATURES 0x09
 #define OPCODE_CREATE_IO_CQ 0x05
 #define OPCODE_CREATE_IO_SQ 0x01

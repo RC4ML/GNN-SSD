@@ -56,6 +56,7 @@ void IOSubmit(
 extern "C"
 void IOComplete(
   cudaStream_t    strm_hdl, 
+  FeatureStorage* feature,
   UnifiedCache*   cache, 
   MemoryPool*     memorypool,
   int32_t         dev_id,

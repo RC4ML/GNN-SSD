@@ -111,12 +111,13 @@ public:
         op_id_ = op_id;
     }
     void run(OpParams* params) override {
+        FeatureStorage* feature     = (FeatureStorage*)(params->feature);
         UnifiedCache* cache         = (UnifiedCache*)(params->cache);
         MemoryPool* memorypool      = (MemoryPool*)(params->memorypool);
         int mode                    = memorypool->GetCurrentMode();
         int32_t device_id           = params->device_id;
 
-        IOComplete(params->stream, cache, memorypool, device_id, mode);
+        IOComplete(params->stream, feature, cache, memorypool, device_id, mode);
         cudaEventRecord(((params->event)), ((params->stream)));
         cudaCheckError();
     }

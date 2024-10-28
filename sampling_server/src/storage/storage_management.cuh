@@ -7,7 +7,7 @@
 class StorageManagement {
 public:
   
-  void Initialze(int32_t partition_count, int32_t in_memory_mode);
+  void Initialze(int32_t shard_count);
 
   GraphStorage* GetGraph();
 
@@ -26,7 +26,7 @@ public:
 private:
   void EnableP2PAccess();
 
-  void ConfigPartition(BuildInfo* info, int32_t partition_count);
+  void ConfigPartition(BuildInfo* info, int32_t shard_count);
 
   void ReadMetaFIle(BuildInfo* info);
 
@@ -34,7 +34,9 @@ private:
 
   void LoadFeature(BuildInfo* info);
   
-  int32_t in_memory_mode_;
+  int32_t central_device_;
+  std::vector<int> shard_to_device_;
+  std::vector<int> shard_to_partition_;
   int32_t partition_;
 
   int64_t cache_edge_num_;
@@ -54,8 +56,8 @@ private:
   int32_t epoch_;
   int32_t num_ssd_;
   int32_t num_queues_per_ssd_;
-  int32_t cpu_cache_capacity_;//for Helios
-  int32_t gpu_cache_capacity_;//for Helios
+  int32_t cpu_cache_capacity_;//for legion ssd
+  int32_t gpu_cache_capacity_;//for legion ssd
   
   GraphStorage* graph_;
   FeatureStorage* feature_;

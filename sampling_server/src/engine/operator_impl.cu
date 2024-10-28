@@ -526,16 +526,16 @@ void IOSubmit(
 	int32_t			op_id,
 	int32_t         dev_id)
 {
-	// int32_t* sampled_ids 		= memorypool->GetSampledIds();
-	// int32_t* cache_index 		= memorypool->GetCacheSearchBuffer();
-	// float* dst_float_buffer 	= memorypool->GetFloatFeatures();
-	// int32_t* node_counter 		= memorypool->GetNodeCounter();
-	// int32_t* edge_counter 		= memorypool->GetEdgeCounter();
+	int32_t* sampled_ids 		= memorypool->GetSampledIds();
+	int32_t* cache_index 		= memorypool->GetCacheSearchBuffer();
+	float* dst_float_buffer 	= memorypool->GetFloatFeatures();
+	int32_t* node_counter 		= memorypool->GetNodeCounter();
+	int32_t* edge_counter 		= memorypool->GetEdgeCounter();
 
-	// counter_update<<<1, 1, 0, (strm_hdl)>>>(node_counter, edge_counter, op_id, 0, 0);		
-	// cudaCheckError();
-	// // feature->IOSubmit(sampled_ids, cache_index, node_counter, dst_float_buffer, op_id, dev_id, strm_hdl);
-	// // cudaCheckError();
+	counter_update<<<1, 1, 0, (strm_hdl)>>>(node_counter, edge_counter, op_id, 0, 0);		
+	cudaCheckError();
+	feature->IOSubmit(sampled_ids, cache_index, node_counter, dst_float_buffer, op_id, dev_id, strm_hdl);
+	cudaCheckError();
 }
 
 
@@ -550,6 +550,7 @@ __global__ void ClearPosMap(int32_t* position_map, int32_t* sampled_ids, int32_t
 extern "C"
 void IOComplete(
   cudaStream_t    strm_hdl, 
+  FeatureStorage* feature,
   UnifiedCache*   cache, 
   MemoryPool*     memorypool,
   int32_t         dev_id,
@@ -563,15 +564,11 @@ void IOComplete(
 		int32_t* sampled_ids = memorypool->GetSampledIds();
 		int32_t* agg_src_off = memorypool->GetAggSrcOf();
 		int32_t* agg_dst_off = memorypool->GetAggDstOf();
-
 		int32_t* position_map = memorypool->GetPositionMap();
-		// int32_t* h_node_counter = (int32_t*)malloc(64);
-		// cudaDeviceSynchronize();
-		// cudaMemcpy(h_node_counter, edge_counter, 64, cudaMemcpyDeviceToHost);
-		// for(int i = 0; i < 16; i++){
-		// 	std::cout<<i<<" h c"<<h_node_counter[i]<<" on "<<dev_id<<"\n";
-		// }
-			// cudaMemsetAsync(position_map, 0, int64_t(int64_t(total_node_num) * int64_t(sizeof(int32_t))), (strm_hdl));
+
+		feature->IOComplete(op_id, dev_id, strm_hdl);
+		cudaCheckError();
+		
 		dim3 block_num(32, 1);
 		dim3 thread_num(OP_THREAD_NUM, 1);
 		ClearPosMap<<<block_num, thread_num, 0, strm_hdl>>>(position_map, sampled_ids, node_counter);

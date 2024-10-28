@@ -1,6 +1,6 @@
 #include "cache.cuh"
 #include "cache_impl.cuh"
-
+#include <algorithm>  
 class PreSCCacheController : public CacheController {
 public:
     PreSCCacheController(int32_t train_step, int32_t device_count){
@@ -80,7 +80,7 @@ public:
         node_map_ = new bght::bcht<int32_t, int32_t>(int64_t(node_capacity_ * device_count_) * 2, invalid_key, invalid_value);
         cudaCheckError();
 
-        edge_index_map_ = new bght::bcht<int32_t, char>(int64_t(edge_capacity_ * device_count_) * 2, invalid_key, invalid_value);
+        edge_index_map_ = new bght::bcht<int32_t, int32_t>(int64_t(edge_capacity_ * device_count_) * 2, invalid_key, -2);
         cudaCheckError();
 
         edge_offset_map_ = new bght::bcht<int32_t, int32_t>(int64_t(edge_capacity_ * device_count_) * 2, invalid_key, invalid_value);
@@ -163,6 +163,52 @@ public:
 
     }
 
+    void UnifiedInsert(int32_t* QF, int32_t* QT, int32_t gpu_feat_num, int32_t cpu_feat_num, int32_t gpu_topo_num, int32_t cpu_topo_num) override {//only feature now
+        cudaSetDevice(device_idx_);
+        cudaCheckError();
+
+        cudaMalloc(&pair_, int64_t(int64_t(cpu_feat_num + gpu_feat_num) * sizeof(pair_type)));
+        cudaCheckError();
+        dim3 block_num(80, 1);
+        dim3 thread_num(1024, 1);
+        cudaStream_t stream;
+        cudaStreamCreate(&stream);
+        HybridInitPair<<<block_num, thread_num>>>(pair_, QF, cpu_feat_num, gpu_feat_num);
+        cudaCheckError();
+        node_map_->insert(pair_, (pair_ + (gpu_feat_num + cpu_feat_num)), stream);
+        cudaCheckError();
+        // if(success){
+        //     std::cout<<"Feature Cache Successfully Initialized\n";
+        // }
+        cudaDeviceSynchronize();
+        cudaCheckError();
+        cudaFree(pair_);
+        cudaCheckError();
+        // cudaFree(cache_ids_);
+        // cudaCheckError();
+        // cudaFree(cache_offset_);
+        // cudaCheckError();
+
+        index_pair_type* index_pair;
+        offset_pair_type* offset_pair;
+        cudaMalloc(&index_pair, int64_t(int64_t(gpu_topo_num + cpu_topo_num) * sizeof(index_pair_type)));
+        cudaCheckError();
+        cudaMalloc(&offset_pair, int64_t(int64_t(gpu_topo_num + cpu_topo_num) * sizeof(offset_pair_type)));
+        cudaCheckError();
+
+        HybridInitIndexPair<<<block_num, thread_num>>>(index_pair, QT, cpu_topo_num, gpu_topo_num);
+        HybridInitOffsetPair<<<block_num, thread_num>>>(offset_pair, QT, cpu_topo_num, gpu_topo_num);
+
+        edge_index_map_->insert(index_pair, (index_pair + int64_t(gpu_topo_num + cpu_topo_num)), stream);
+        cudaCheckError();
+
+        edge_offset_map_->insert(offset_pair, (offset_pair + int64_t(gpu_topo_num + cpu_topo_num)), stream);
+
+        cudaFree(index_pair);
+        cudaFree(offset_pair);
+    }
+
+
     void AccessCount(
         int32_t* d_key,
         int32_t num_keys,
@@ -215,7 +261,7 @@ public:
     }
 
     void FindTopo(int32_t* input_ids, 
-                    char* partition_index, 
+                    int32_t* partition_index, 
                     int32_t* partition_offset, 
                     int32_t batch_size, 
                     int32_t op_id, 
@@ -242,7 +288,22 @@ public:
         //     find_iter_[device_id] += 1;
         // }
     }
+    void FindTopoSSD(int32_t* sampled_ids,
+                    int32_t* cache_offset,
+                    int32_t* node_counter,
+                    int32_t op_id,
+                    void* stream) override {
+        int32_t* h_node_counter = (int32_t*)malloc(64);
+        cudaMemcpy(h_node_counter, node_counter, 64, cudaMemcpyDeviceToHost);
 
+        int32_t node_off = h_node_counter[(op_id % INTRABATCH_CON) * 2];
+        int32_t batch_size = h_node_counter[(op_id % INTRABATCH_CON) * 2 + 1];
+        if(batch_size == 0){
+            std::cout<<"invalid batchsize for feature extraction "<<h_node_counter[(op_id % INTRABATCH_CON) * 2]<<" "<<h_node_counter[(op_id % INTRABATCH_CON) * 2 + 1]<<"\n";
+            return;
+        }
+        edge_index_map_->find(sampled_ids + node_off, sampled_ids + (node_off + batch_size), cache_offset, static_cast<cudaStream_t>(stream));
+    }
 
     int32_t MaxIdNum() override
     {
@@ -264,7 +325,7 @@ private:
     bght::bcht<int32_t, int32_t>* node_map_;
     bght::bcht<int32_t, int32_t>* pos_map_;
 
-    bght::bcht<int32_t, char>* edge_index_map_;
+    bght::bcht<int32_t, int32_t>* edge_index_map_;
     bght::bcht<int32_t, int32_t>* edge_offset_map_;
 
 
@@ -298,7 +359,12 @@ void UnifiedCache::Initialize(
     int32_t train_step, 
     int32_t device_count,
     int32_t cpu_cache_capacity,
-    int32_t gpu_cache_capacity)
+    int32_t gpu_cache_capacity,
+    int64_t cpu_topo_size,
+    int64_t gpu_topo_size,
+    int64_t cpu_feat_size,
+    int64_t gpu_feat_size
+    )
 {
     device_count_ = device_count;
     cache_controller_.resize(device_count_);
@@ -306,7 +372,7 @@ void UnifiedCache::Initialize(
         CacheController* cctl = NewPreSCCacheController(train_step, device_count_);
         cache_controller_[i] = cctl;
     }
-    // std::cout<<"Cache Controler Initialize\n";
+    std::cout<<"Cache Controler Initialize\n";
 
     if(float_feature_len > 0){
         float_feature_cache_.resize(device_count_);
@@ -315,8 +381,12 @@ void UnifiedCache::Initialize(
 
     cache_memory_ = cache_memory;
     float_feature_len_ = float_feature_len;
-    cpu_cache_capacity_ = cpu_cache_capacity;
-    gpu_cache_capacity_ = gpu_cache_capacity;
+    // cpu_cache_capacity_ = cpu_cache_capacity;
+    // gpu_cache_capacity_ = gpu_cache_capacity;
+    cpu_topo_size_ = cpu_topo_size;
+    gpu_topo_size_ = gpu_topo_size;
+    cpu_feat_size_ = cpu_feat_size;
+    gpu_feat_size_ = gpu_feat_size;
     is_presc_ = true;
 }
 
@@ -346,7 +416,7 @@ void UnifiedCache::FindFeat(
 
 void UnifiedCache::FindTopo(
     int32_t* input_ids,
-    char* partition_index,
+    int32_t* partition_index,
     int32_t* partition_offset, 
     int32_t batch_size, 
     int32_t op_id, 
@@ -356,9 +426,19 @@ void UnifiedCache::FindTopo(
     cache_controller_[dev_id]->FindTopo(input_ids, partition_index, partition_offset, batch_size, op_id, strm_hdl, dev_id);
 }
 
+void UnifiedCache::FindTopoSSD(
+    int32_t* sampled_ids,
+    int32_t* cache_offset,
+    int32_t* node_counter,
+    int32_t op_id,
+    void* stream,
+    int32_t dev_id)
+{
+    cache_controller_[dev_id]->FindTopoSSD(sampled_ids, cache_offset, node_counter, op_id, stream);
+}
 
 void UnifiedCache::CandidateSelection(int cache_agg_mode, FeatureStorage* feature, GraphStorage* graph){
-    // std::cout<<"Start selecting cache candidates\n";
+    std::cout<<"Start selecting cache candidates\n";
     std::vector<unsigned long long int*> node_access_time;
     std::vector<unsigned long long int*> edge_access_time;
     for(int32_t i = 0; i < device_count_; i++){
@@ -371,7 +451,7 @@ void UnifiedCache::CandidateSelection(int cache_agg_mode, FeatureStorage* featur
 
     int32_t Kc;
     int32_t Kg;
-    //Kc: number of NVLink cliques, Kg: number of GPUs in each clique
+
     for(int32_t i = 0; i < device_count_; i++){
         if(cache_agg_mode == 0){
             Kg = 1;
@@ -391,7 +471,7 @@ void UnifiedCache::CandidateSelection(int cache_agg_mode, FeatureStorage* featur
     Kc_ = Kc;
     Kg_ = Kg;
 
-    // std::cout<<"NVLink Clique: "<<Kc<<" GPU Per Clique: "<<Kg<<std::endl;
+    std::cout<<"NVLink Clique: "<<Kc<<" GPU Per Clique: "<<Kg<<std::endl;
 
     int32_t total_num_nodes = feature->TotalNodeNum();
     total_num_nodes_ = total_num_nodes;
@@ -449,7 +529,7 @@ void UnifiedCache::CostModel(int cache_agg_mode, FeatureStorage* feature, GraphS
     float* cpu_float_feature = feature->GetAllFloatFeature();
     int32_t float_feature_len = feature->GetFloatFeatureLen();
     int64_t* csr_index = graph->GetCSRNodeIndexCPU();
-    // std::cout<<"Start solve cost model"<<std::endl;
+    std::cout<<"Start solve cost model"<<std::endl;
     for(int32_t i = 0; i < Kc_; i++){
 
         cudaSetDevice(i*Kg_);
@@ -543,10 +623,10 @@ void UnifiedCache::CostModel(int cache_agg_mode, FeatureStorage* feature, GraphS
             // std::cout<<trans_of_total[sidx]<<std::endl;
         }
         int max_sidx = std::max_element(trans_of_total.begin(),trans_of_total.end()) - trans_of_total.begin(); 
-        std::cout<<"Alpha: "<<(max_sidx * MIN_INTERVAL)<<" Transactions: "<<trans_of_total[max_sidx]<<" on Clique: "<<i<<std::endl;
+        std::cout<<"Alpha: "<<(max_sidx * MIN_INTERVAL)<<" Transactions: "<<trans_of_total[max_sidx]<<std::endl;
         node_capacity_.push_back(cap_of_feat[steps - 1 - max_sidx] + 1);//capacity of each GPU
         edge_capacity_.push_back(cap_of_topo[max_sidx] + 1);   
-        std::cout<<"Feat capacity: "<<cap_of_feat[steps-1-max_sidx]<<" Topo capacity: "<<cap_of_topo[max_sidx]<<" on Clique: "<<i<<std::endl;
+        std::cout<<"Feat capacity "<<cap_of_feat[steps-1-max_sidx]<<" topo capacity "<<cap_of_topo[max_sidx]<<std::endl;
     }
 }
 
@@ -565,7 +645,7 @@ void UnifiedCache::FillUp(int cache_agg_mode, FeatureStorage* feature, GraphStor
         for(int32_t j = 0; j < Kg_; j++){
             cudaSetDevice(i * Kg_ + j);
             cache_controller_[i * Kg_ + j]->InitializeMap(node_capacity_[i], edge_capacity_[i]);
-            cache_controller_[i * Kg_ + j]->Insert(QT_[i], QF_[i], cache_expand, Kg_);
+            // cache_controller_[i * Kg_ + j]->Insert(QT_[i], QF_[i], cache_expand, Kg_);
         }
     }
     
@@ -601,72 +681,111 @@ void UnifiedCache::FillUp(int cache_agg_mode, FeatureStorage* feature, GraphStor
         }
     }
     cudaDeviceSynchronize();
-    // std::cout<<"Finish load feature cache\n";
+    std::cout<<"Finish load feature cache\n";
 
     for(int32_t i = 0; i < Kc_; i++){
         graph->GraphCache(QT_[i], i, Kg_, edge_capacity_[i]);
     }
     cudaDeviceSynchronize();
-    // std::cout<<"Finish load topology cache\n";
+    std::cout<<"Finish load topology cache\n";
 }
 
+void UnifiedCache::HybridInit(FeatureStorage* feature, GraphStorage* graph){//single gpu 
 
-void UnifiedCache::HybridInit(FeatureStorage* feature, GraphStorage* graph){//multi-gpu 
-    cudaSetDevice(0);
-    cudaHostAlloc(&cpu_float_features_, int64_t(int64_t(cpu_cache_capacity_) * float_feature_len_ * sizeof(float)), cudaHostAllocMapped);
-
-    // std::cout<<"Start selecting cache candidates\n";
+    std::cout<<"Start selecting cache candidates\n";
     std::vector<unsigned long long int*> node_access_time;
-    for(int32_t i = 0; i < device_count_; i++){
+    for(int32_t i = 0; i < 1; i++){
         node_access_time.push_back(cache_controller_[i]->GetNodeAccessedMap());
+    }
+    std::vector<unsigned long long int*> edge_access_time;
+    for(int32_t i = 0; i < 1; i++){
+        edge_access_time.push_back(cache_controller_[i]->GetEdgeAccessedMap());
     }
     cudaCheckError();
     int32_t total_num_nodes = feature->TotalNodeNum();
     total_num_nodes_ = total_num_nodes;
-    for(int32_t i = 0; i < device_count_; i++){
-        cudaSetDevice(i);
-        int32_t* node_cache_order;
-        cudaMalloc(&node_cache_order, int64_t(int64_t(total_num_nodes) * sizeof(int32_t)));
-        cudaCheckError();
-        init_cache_order<<<80, 1024>>>(node_cache_order, total_num_nodes);
-        thrust::sort_by_key(thrust::device, node_access_time[i], node_access_time[i] + total_num_nodes, node_cache_order, thrust::greater<unsigned long long int>());
-        cudaCheckError();
-        QF_.push_back(node_cache_order);
-    }
-    for(int32_t i = 0; i < device_count_; i++){
-        cudaSetDevice(i);
-        cache_controller_[i]->InitializeMap(gpu_cache_capacity_ + cpu_cache_capacity_, 100);//edge cache disabled now
-        cache_controller_[i]->HybridInsert(QF_[i], cpu_cache_capacity_, gpu_cache_capacity_);
-    }
+    int32_t* node_cache_order;
+    cudaMalloc(&node_cache_order, int64_t(int64_t(total_num_nodes) * sizeof(int32_t)));
+    cudaCheckError();
 
-    d_float_feature_cache_ptr_.resize(device_count_);
+    init_cache_order<<<80, 1024>>>(node_cache_order, total_num_nodes);
 
-    for(int32_t i = 0; i < device_count_; i++){
-        cudaSetDevice(i);
+    thrust::sort_by_key(thrust::device, node_access_time[0], node_access_time[0] + total_num_nodes, node_cache_order, thrust::greater<unsigned long long int>());
+    cudaCheckError();
+
+    QF_.push_back(node_cache_order);
+    
+
+    int32_t* edge_cache_order;
+    cudaMalloc(&edge_cache_order, int64_t(int64_t(total_num_nodes) * sizeof(int32_t)));
+    cudaCheckError();
+
+    init_cache_order<<<80, 1024>>>(edge_cache_order, total_num_nodes);
+
+    thrust::sort_by_key(thrust::device, edge_access_time[0], edge_access_time[0] + total_num_nodes, edge_cache_order, thrust::greater<unsigned long long int>());
+    cudaCheckError();
+    cudaFree(edge_access_time[0]);
+    cudaFree(node_access_time[0]);
+    QT_.push_back(edge_cache_order);
+
+    int64_t* csr_index = graph->GetCSRNodeIndexCPU();
+    uint64_t* d_edge_mem;
+    cudaMalloc(&d_edge_mem, int64_t(int64_t(total_num_nodes)*sizeof(uint64_t)));
+    GetEdgeMem<<<80, 1024>>>(QT_[0], d_edge_mem, total_num_nodes, csr_index);
+    cudaCheckError();
+    uint64_t* d_edge_mem_prefix;
+    cudaMalloc(&d_edge_mem_prefix, int64_t(int64_t(total_num_nodes)*sizeof(uint64_t))); 
+    thrust::inclusive_scan(thrust::device, d_edge_mem, d_edge_mem + total_num_nodes, d_edge_mem_prefix);
+    cudaCheckError();
+    uint64_t* h_edge_mem_prefix = (uint64_t*)malloc(int64_t(int64_t(total_num_nodes)*sizeof(uint64_t)));
+    cudaMemcpy(h_edge_mem_prefix, d_edge_mem_prefix, int64_t(int64_t(total_num_nodes)*sizeof(uint64_t)), cudaMemcpyDeviceToHost);
+    cudaFree(d_edge_mem);
+    cudaFree(d_edge_mem_prefix);
+
+    gpu_topo_num_ = std::min((std::lower_bound(h_edge_mem_prefix, h_edge_mem_prefix + total_num_nodes, gpu_topo_size_) - h_edge_mem_prefix), int64_t(total_num_nodes));
+    cpu_topo_num_ = std::min((std::lower_bound(h_edge_mem_prefix, h_edge_mem_prefix + total_num_nodes, (gpu_topo_size_ + cpu_topo_size_)) - h_edge_mem_prefix - gpu_topo_num_), int64_t(total_num_nodes));
+    
+    std::cout<<"GPU Topo Cap: "<<gpu_topo_num_<<" CPU Topo Cap: "<<cpu_topo_num_<<"\n";
+    gpu_feat_num_  = int(gpu_feat_size_ / (float_feature_len_ * sizeof(float)));
+    cpu_feat_num_  = int(cpu_feat_size_ / (float_feature_len_ * sizeof(float)));
+    std::cout<<"GPU Feat Cap: "<<gpu_feat_num_<<" CPU Feat Cap: "<<cpu_feat_num_<<"\n";
+    graph->HyrbidGraphCache(QT_[0], cpu_topo_num_, gpu_topo_num_);
+    // std::cout<<"GPU Feat Cap: "<<gpu_feat_num_<<" CPU Feat Cap: "<<cpu_feat_num_<<"\n";
+
+    cache_controller_[0]->InitializeMap(gpu_feat_num_ + cpu_feat_num_, gpu_topo_num_ + cpu_topo_num_);
+    // std::cout<<"GPU Feat Cap: "<<gpu_feat_num_<<" CPU Feat Cap: "<<cpu_feat_num_<<"\n";
+
+    cache_controller_[0]->UnifiedInsert(QF_[0], QT_[0], gpu_feat_num_, cpu_feat_num_, gpu_topo_num_, cpu_topo_num_);
+    // std::cout<<"GPU Feat Cap: "<<gpu_feat_num_<<" CPU Feat Cap: "<<cpu_feat_num_<<"\n";
+
+
+    cudaHostAlloc(&cpu_float_features_, int64_t(int64_t(cpu_feat_num_) * float_feature_len_ * sizeof(float)), cudaHostAllocMapped);
+    cudaSetDevice(0);
+
+    d_float_feature_cache_ptr_.resize(1);
+
+    for(int32_t i = 0; i < 1; i++){
         float** new_ptr;
-        cudaMalloc(&new_ptr, device_count_ * sizeof(float*));
+        cudaMalloc(&new_ptr, 1 * sizeof(float*));
         d_float_feature_cache_ptr_[i] = new_ptr;
     }
 
     if(float_feature_len_ > 0){
-        for(int32_t i = 0; i < device_count_; i++){
-            cudaSetDevice(i);
-            float* new_float_feature_cache;
-            cudaMalloc(&new_float_feature_cache, int64_t(int64_t(int64_t(gpu_cache_capacity_) * float_feature_len_) * sizeof(float)));
-            // FeatFillUp<<<128, 1024>>>(gpu_cache_capacity_, float_feature_len_, new_float_feature_cache, cpu_float_feature, QF_[i], Kg_, j);
-            float_feature_cache_[i] = new_float_feature_cache;
-            init_feature_cache<<<1,1>>>(d_float_feature_cache_ptr_[0], new_float_feature_cache, i);
-            cudaCheckError();
-        }
-        for(int32_t i = 0; i < device_count_; i++){
-            cudaMemcpy(d_float_feature_cache_ptr_[i], d_float_feature_cache_ptr_[0], device_count_ * sizeof(float*), cudaMemcpyDeviceToDevice);
-        }
+        float* new_float_feature_cache;
+        cudaMalloc(&new_float_feature_cache, int64_t(int64_t(int64_t(gpu_feat_num_) * float_feature_len_) * sizeof(float)));
+        std::cout<<"Allocate GPU Feature Cache"<<gpu_feat_num_<<"\n";
+        // FeatFillUp<<<128, 1024>>>(gpu_cache_capacity_, float_feature_len_, new_float_feature_cache, cpu_float_feature, QF_[i], Kg_, j);
+        float_feature_cache_[0] = new_float_feature_cache;
+        init_feature_cache<<<1,1>>>(d_float_feature_cache_ptr_[0], new_float_feature_cache, 0);//j: device id in clique
+        cudaCheckError();
     }
+
+
 
     cudaDeviceSynchronize();
     is_presc_ = false;
 
-    std::cout<<"Finish initializing cache\n";
+    std::cout<<"Finish load feature cache\n";
 }
 
 int32_t UnifiedCache::NodeCapacity(int32_t dev_id){
@@ -726,23 +845,15 @@ void UnifiedCache::AccessCount(
 void UnifiedCache::FeatCacheLookup(int32_t* sampled_ids, int32_t* cache_index,
                                     int32_t* node_counter, float* dst_float_buffer,
                                     int32_t op_id, int32_t dev_id, cudaStream_t strm_hdl){
-    dim3 block_num(32, 1);
+    dim3 block_num(16, 1);
 	dim3 thread_num(1024, 1);
-    float** gpu_float_feature     = Global_Float_Feature_Cache(dev_id);
-    int32_t cpu_cache_capacity    = CPUCapacity();
-    int32_t gpu_cache_capacity    = GPUCapacity();
-    // feat_cache_lookup<<<block_num, thread_num, 0, (strm_hdl)>>>(
-    //     cpu_float_features_, float_feature_cache_[0], float_feature_len_,
-    //     sampled_ids, cache_index, 
-    //     cpu_cache_capacity, gpu_cache_capacity,
-    //     node_counter, dst_float_buffer,
-    //     op_id
-    // );
-    multiGPU_feat_cache_lookup<<<block_num, thread_num, 0, (strm_hdl)>>>(
-        cpu_float_features_, gpu_float_feature, float_feature_len_,
-        sampled_ids, cache_index, NodeCapacity(dev_id),
+    int32_t cpu_cache_capacity    = cpu_feat_num_;
+    int32_t gpu_cache_capacity    = gpu_feat_num_;
+    feat_cache_lookup<<<block_num, thread_num, 0, (strm_hdl)>>>(
+        cpu_float_features_, float_feature_cache_[0], float_feature_len_,
+        sampled_ids, cache_index, 
+        cpu_cache_capacity, gpu_cache_capacity,
         node_counter, dst_float_buffer,
-        total_num_nodes_,
-        dev_id, op_id
+        op_id
     );
 }

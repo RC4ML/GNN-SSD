@@ -63,5 +63,3 @@ After Hyperion outputs "System is ready for serving", then start training by:
 ```
 $ python training_backend/Hyperion_graphsage.py --class_num 2  --features_num 128 --hidden_dim 256 --hops_num 2 --epoch 2
 ```
-
-

@@ -7,7 +7,7 @@ class FeatureStorage {
 public: 
     virtual ~FeatureStorage() = default;
 
-    virtual void Build(BuildInfo* info, int in_memory_mode) = 0;
+    virtual void Build(BuildInfo* info) = 0;
     virtual void Finalize() = 0;
 
     virtual int32_t* GetTrainingSetIds(int32_t part_id) const = 0;
@@ -25,12 +25,15 @@ public:
     virtual int32_t TotalNodeNum() const = 0;
     virtual float* GetAllFloatFeature() const = 0;
     virtual int32_t GetFloatFeatureLen() const = 0;
+
+    virtual void Print(BuildInfo* info) = 0;
     
     virtual void IOSubmit(int32_t* sampled_ids, int32_t* cache_index,
                   int32_t* node_counter, float* dst_float_buffer,
                   int32_t op_id, int32_t dev_id, cudaStream_t strm_hdl) = 0;
 
-    virtual void IOComplete() = 0;
+    virtual void IOComplete(int32_t op_id, int32_t dev_id, cudaStream_t strm_hdl) = 0;
+
 };
 
 extern "C" 

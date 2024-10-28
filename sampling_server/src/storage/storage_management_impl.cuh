@@ -66,9 +66,9 @@ void mmap_trainingset_read(std::string &training_file, std::vector<int32_t>& tra
 int32_t mmap_partition_read(std::string &partition_file, int32_t* partition_index){
     int64_t part_idx = 0;
     int32_t fd = open(partition_file.c_str(), O_RDONLY);
-    if(fd == -1){
-        std::cout<<"cannout open file: "<<partition_file<<"\n";
-    }
+    // if(fd == -1){
+    //     std::cout<<"cannout open file: "<<partition_file<<"\n";
+    // }
     int64_t buf_len = lseek(fd, 0, SEEK_END);
     const int32_t* buf = (int32_t *)mmap(NULL, buf_len, PROT_READ, MAP_PRIVATE, fd, 0);
     const int32_t* buf_end = buf + buf_len/sizeof(int32_t);

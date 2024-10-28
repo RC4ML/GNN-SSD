@@ -2,12 +2,6 @@
 #include "feature_storage_impl.cuh"
 #include <iostream>
 
-#include <unordered_set>
-#include <algorithm>
-#include <random>
-#include <assert.h>
-#include <unistd.h>
-
 class CompleteFeatureStorage : public FeatureStorage{
 public: 
     CompleteFeatureStorage(){
@@ -15,16 +9,21 @@ public:
 
     virtual ~CompleteFeatureStorage(){};
 
-    void Build(BuildInfo* info, int in_memory_mode) override {
+    void Build(BuildInfo* info) override {
+        iostack_ = new IOStack(info->num_ssd, info->num_queues_per_ssd);
+        num_ssd_ = info->num_ssd;
+        std::cout<<"IOStack built\n";
+        queue_ = new UserQueue(32, 1024, 512, 4000000);
+        std::cout<<"UserQueue built\n";
+ 
         int32_t partition_count = info->partition_count;
         total_num_nodes_ = info->total_num_nodes;
         float_feature_len_ = info->float_feature_len;
         float* host_float_feature = info->host_float_feature;
 
-        if(in_memory_mode){
-            cudaHostGetDevicePointer(&float_feature_, host_float_feature, 0);
-        }
-        cudaCheckError();
+        cudaSetDevice(0);
+        cudaMalloc(&d_num_req_, sizeof(int32_t));
+        cudaMemset(d_num_req_, 0, sizeof(int32_t));
 
         training_set_num_.resize(partition_count);
         training_set_ids_.resize(partition_count);
@@ -40,14 +39,20 @@ public:
 
         partition_count_ = partition_count;
 
-        for(int32_t i = 0; i < partition_count_; i++){
-            int32_t part_id = i;
+        handlers_.resize(100); // Maximum of Hops
+
+        for(int32_t i = 0; i < info->shard_to_partition.size(); i++){
+            int32_t part_id = info->shard_to_partition[i];
+            int32_t device_id = info->shard_to_device[i];
+
             training_set_num_[part_id] = info->training_set_num[part_id];
+
             validation_set_num_[part_id] = info->validation_set_num[part_id];
             testing_set_num_[part_id] = info->testing_set_num[part_id];
 
-            cudaSetDevice(part_id);
+            cudaSetDevice(device_id);
             cudaCheckError();
+
 
             int32_t* train_ids;
             cudaMalloc(&train_ids, training_set_num_[part_id] * sizeof(int32_t));
@@ -87,10 +92,14 @@ public:
 
         }
 
+        cudaMalloc(&d_req_count_, sizeof(unsigned long long));
+        cudaMemset(d_req_count_, 0, sizeof(unsigned long long));
+        cudaCheckError();
+
     };
 
     void Finalize() override {
-        cudaFreeHost(float_feature_);
+        // cudaFreeHost(float_feature_);
         for(int32_t i = 0; i < partition_count_; i++){
             cudaSetDevice(i);
             cudaFree(training_set_ids_[i]);
@@ -143,14 +152,23 @@ public:
         return float_feature_len_;
     }
 
+    void Print(BuildInfo* info) override {
+    }
+
     void IOSubmit(int32_t* sampled_ids, int32_t* cache_index,
                   int32_t* node_counter, float* dst_float_buffer,
                   int32_t op_id, int32_t dev_id, cudaStream_t strm_hdl) override {
-		//TODO
+		
+        IOReq* req = queue_->dequeue(node_counter, op_id, cache_index, sampled_ids, d_num_req_, dst_float_buffer , float_feature_len_, num_ssd_, strm_hdl);
+        cudaCheckError();
+        handlers_[op_id/INTRABATCH_CON] = iostack_->submit_io_req(req, d_num_req_, op_id / INTRABATCH_CON, strm_hdl);
+        cudaCheckError();
     }
 
-    void IOComplete() override {
-        //TODO
+    void IOComplete(int32_t op_id, int32_t dev_id, cudaStream_t strm_hdl) override {
+        
+        iostack_->complete_io_req(handlers_, op_id/INTRABATCH_CON, strm_hdl); //op_id/INTRABATCH_CON = IO submission times
+    
     }
 
 private:
@@ -171,6 +189,17 @@ private:
     float* float_feature_;
     int32_t float_feature_len_;
 
+    unsigned long long* d_req_count_;
+
+    int32_t num_ssd_;
+
+    IOStack* iostack_;//single GPU multi-SSD
+    UserQueue* queue_;
+    int32_t* d_num_req_;
+    // IOReq* h_reqs_;
+    // IOReq* d_reqs_;
+    // float *app_buf_;
+    std::vector<IOHandler*> handlers_;
     friend FeatureStorage* NewCompleteFeatureStorage();
 };
 
